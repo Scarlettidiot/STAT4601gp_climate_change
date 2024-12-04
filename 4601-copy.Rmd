@@ -1,0 +1,503 @@
+---
+title: "Untitled"
+output:
+  html_document: default
+  pdf_document: default
+date: "2024-11-15"
+---
+
+```{r setup, include=FALSE}
+data <- read.csv("data1.csv")
+data<- na.omit(data)
+```
+
+```{r}
+data<- na.omit(data)
+```
+
+```{r}
+library(xts)
+data$dt <- as.Date(data$dt, format = "%Y/%m/%d")
+data$AverageTemperature <- as.numeric(data$AverageTemperature)
+data_filtered <- data[data$dt < as.Date("2013-07-01"), ]
+data_xts <- xts(data_filtered$AverageTemperature, order.by = data_filtered$dt)
+
+plot(data_xts, main = "Average Temperature Over Time", xlab = "Date", ylab = "Average Temperature")
+colnames(data_xts) <- "AverageTemperature"
+head(data_xts)
+```
+
+```{r}
+# sample size
+N <- length(data_xts)
+alpha <- 0.05  
+
+# z-score for 95% confidence level
+z_score <- qnorm(1 - alpha / 2)
+
+# calculate ACF and PACF
+acf_result <- acf(data_xts, plot = FALSE)
+pacf_result <- pacf(data_xts, plot = FALSE)
+
+# print ACF and PACF at each lag
+cat("ACF Results with 95% Confidence Intervals:\n")
+for (i in 1:length(acf_result$acf)) {
+  acf_value <- acf_result$acf[i]
+  ci_acf <- z_score * (1 / sqrt(N)) 
+  lower_acf <- acf_value - ci_acf
+  upper_acf <- acf_value + ci_acf
+  cat("Lag:", acf_result$lag[i], "ACF:", acf_value,
+      "CI:", c(lower_acf, upper_acf), "\n")
+}
+
+cat("\nPACF Results with 95% Confidence Intervals:\n")
+for (i in 1:length(pacf_result$acf)) {
+  pacf_value <- pacf_result$acf[i]
+  ci_pacf <- z_score * (1 / sqrt(N))  
+  lower_pacf <- pacf_value - ci_pacf
+  upper_pacf <- pacf_value + ci_pacf
+  cat("Lag:", pacf_result$lag[i], "PACF:", pacf_value,
+      "CI:", c(lower_pacf, upper_pacf), "\n")
+}
+
+# ACF plot
+acf(data_xts[, "AverageTemperature"], main = "ACF of Average Temperature")
+
+# pacf plot
+pacf(data_xts[, "AverageTemperature"], main = "PACF of Average Temperature")
+```
+
+Model selection
+
+```{r}
+library(forecast)
+# 示例时间序列数据（请替换为你的数据）
+temperature_ts <- ts(data_xts$AverageTemperature, frequency = 12, start = c(2003, 1))
+# 参数范围
+p_values <- 0:5  # 非季节性自回归阶数
+d_values <- 0:2    # 非季节性差分阶数
+q_values <- 0:5    # 非季节性移动平均阶数
+P_values <- 0:2    # 季节性自回归阶数
+D_values <- 0    # 季节性差分阶数
+Q_values <- 0:2    # 季节性移动平均阶数
+S <- 12            # 季节长度（例如，月度数据的年度季节性为 12）
+
+
+# 初始化结果存储
+model_results <- data.frame(Model = character(),
+                            p = integer(),
+                            d = integer(),
+                            q = integer(),
+                            P = integer(),
+                            D = integer(),
+                            Q = integer(),
+                            AIC = numeric(),
+                            BIC = numeric(),
+                            stringsAsFactors = FALSE)
+
+# 遍历参数组合
+for (p in p_values) {
+  for (d in d_values) {
+    for (q in q_values) {
+      for (P in P_values) {
+        for (D in D_values) {
+          for (Q in Q_values) {
+            # 尝试拟合 SARIMA 模型，捕获错误
+            model <- tryCatch({
+              Arima(temperature_ts, order = c(p, d, q), seasonal = list(order = c(P, D, Q), period = S),method = "ML")
+            }, error = function(e) NULL)  # 捕获错误，返回 NULL
+            
+            # 如果模型成功拟合，记录 AIC 和 BIC
+            if (!is.null(model)) {
+              aic_value <- AIC(model)
+              bic_value <- BIC(model)
+              
+              # 打印每个模型的信息及 AIC
+              cat("SARIMA(", p, d, q, ")(", P, D, Q, ")[", S, "] - AIC:", aic_value, "\n")
+              
+              # 存储结果
+              model_results <- rbind(model_results, data.frame(
+                Model = paste("SARIMA(", p, d, q, ")(", P, D, Q, ")[", S, "]", sep = ""),
+                p = p, d = d, q = q, P = P, D = D, Q = Q,
+                AIC = aic_value,
+                BIC = bic_value
+              ))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# 查看所有结果
+print(model_results)
+
+# 按 AIC 排序，选择最佳模型
+best_model <- model_results[which.min(model_results$AIC), ]
+cat("Best SARIMA model based on AIC:\n")
+print(best_model)
+
+
+```
+
+```{r}
+library(forecast)
+# 示例时间序列数据（请替换为你的数据）
+temperature_ts <- ts(data_xts$AverageTemperature, frequency = 12, start = c(2003, 1))
+# 参数范围
+p_values <- 0:5  # 非季节性自回归阶数
+d_values <- 0:2    # 非季节性差分阶数
+q_values <- 0:5    # 非季节性移动平均阶数
+P_values <- 0:2    # 季节性自回归阶数
+D_values <- 0    # 季节性差分阶数
+Q_values <- 0:2    # 季节性移动平均阶数
+S <- 12            # 季节长度（例如，月度数据的年度季节性为 12）
+
+
+# 初始化结果存储
+model_results <- data.frame(Model = character(),
+                            p = integer(),
+                            d = integer(),
+                            q = integer(),
+                            P = integer(),
+                            D = integer(),
+                            Q = integer(),
+                            AIC = numeric(),
+                            BIC = numeric(),
+                            stringsAsFactors = FALSE)
+
+# 遍历参数组合
+for (p in p_values) {
+  for (d in d_values) {
+    for (q in q_values) {
+      for (P in P_values) {
+        for (D in D_values) {
+          for (Q in Q_values) {
+            # 尝试拟合 SARIMA 模型，捕获错误
+            model <- tryCatch({
+              Arima(data_xts$AverageTemperature, order = c(p, d, q), seasonal = list(order = c(P, D, Q), period = S))
+            }, error = function(e) NULL)  # 捕获错误，返回 NULL
+            
+            # 如果模型成功拟合，记录 AIC 和 BIC
+            if (!is.null(model)) {
+              aic_value <- AIC(model)
+              bic_value <- BIC(model)
+              
+              # 打印每个模型的信息及 AIC
+              cat("SARIMA(", p, d, q, ")(", P, D, Q, ")[", S, "] - AIC:", aic_value, "\n")
+              
+              # 存储结果
+              model_results <- rbind(model_results, data.frame(
+                Model = paste("SARIMA(", p, d, q, ")(", P, D, Q, ")[", S, "]", sep = ""),
+                p = p, d = d, q = q, P = P, D = D, Q = Q,
+                AIC = aic_value,
+                BIC = bic_value
+              ))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# 查看所有结果
+print(model_results)
+
+# 按 AIC 排序，选择最佳模型
+best_model <- model_results[which.min(model_results$AIC), ]
+cat("Best SARIMA model based on AIC:\n")
+print(best_model)
+
+```
+
+```{r}
+library(forecast)
+# 示例时间序列数据（请替换为你的数据）
+temperature_ts <- ts(data_xts$AverageTemperature, frequency = 12, start = c(2003, 1))
+# 参数范围
+p_values <- 0:5  # 非季节性自回归阶数
+d_values <- 0:2    # 非季节性差分阶数
+q_values <- 0:5    # 非季节性移动平均阶数
+P_values <- 0:2    # 季节性自回归阶数
+D_values <- 0    # 季节性差分阶数
+Q_values <- 0:2    # 季节性移动平均阶数
+S <- 12            # 季节长度（例如，月度数据的年度季节性为 12）
+
+
+# 初始化结果存储
+model_results <- data.frame(Model = character(),
+                            p = integer(),
+                            d = integer(),
+                            q = integer(),
+                            P = integer(),
+                            D = integer(),
+                            Q = integer(),
+                            AIC = numeric(),
+                            BIC = numeric(),
+                            stringsAsFactors = FALSE)
+
+# 遍历参数组合
+for (p in p_values) {
+  for (d in d_values) {
+    for (q in q_values) {
+      for (P in P_values) {
+        for (D in D_values) {
+          for (Q in Q_values) {
+            # 尝试拟合 SARIMA 模型，捕获错误
+            model <- tryCatch({
+              Arima(data_xts$AverageTemperature, order = c(p, d, q), seasonal = list(order = c(P, D, Q), period = S),method="ML")
+            }, error = function(e) NULL)  # 捕获错误，返回 NULL
+            
+            # 如果模型成功拟合，记录 AIC 和 BIC
+            if (!is.null(model)) {
+              aic_value <- AIC(model)
+              bic_value <- BIC(model)
+              
+              # 打印每个模型的信息及 AIC
+              cat("SARIMA(", p, d, q, ")(", P, D, Q, ")[", S, "] - AIC:", aic_value, "\n")
+              
+              # 存储结果
+              model_results <- rbind(model_results, data.frame(
+                Model = paste("SARIMA(", p, d, q, ")(", P, D, Q, ")[", S, "]", sep = ""),
+                p = p, d = d, q = q, P = P, D = D, Q = Q,
+                AIC = aic_value,
+                BIC = bic_value
+              ))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# 查看所有结果
+print(model_results)
+
+# 按 AIC 排序，选择最佳模型
+best_model <- model_results[which.min(model_results$AIC), ]
+cat("Best SARIMA model based on AIC:\n")
+print(best_model)
+```
+
+```{r}
+library(forecast)
+# 示例时间序列数据（请替换为你的数据）
+temperature_ts <- ts(data_xts$AverageTemperature, frequency = 12, start = c(2003, 1))
+# 参数范围
+p_values <- 0:5  # 非季节性自回归阶数
+d_values <- 0:2    # 非季节性差分阶数
+q_values <- 0:5    # 非季节性移动平均阶数
+P_values <- 0:2    # 季节性自回归阶数
+D_values <- 0    # 季节性差分阶数
+Q_values <- 0:2    # 季节性移动平均阶数
+S <- 12            # 季节长度（例如，月度数据的年度季节性为 12）
+
+
+# 初始化结果存储
+model_results <- data.frame(Model = character(),
+                            p = integer(),
+                            d = integer(),
+                            q = integer(),
+                            P = integer(),
+                            D = integer(),
+                            Q = integer(),
+                            AIC = numeric(),
+                            BIC = numeric(),
+                            stringsAsFactors = FALSE)
+
+# 遍历参数组合
+for (p in p_values) {
+  for (d in d_values) {
+    for (q in q_values) {
+      for (P in P_values) {
+        for (D in D_values) {
+          for (Q in Q_values) {
+            # 尝试拟合 SARIMA 模型，捕获错误
+            model <- tryCatch({
+              Arima(temperature_ts, order = c(p, d, q), seasonal = list(order = c(P, D, Q), period = S))
+            }, error = function(e) NULL)  # 捕获错误，返回 NULL
+            
+            # 如果模型成功拟合，记录 AIC 和 BIC
+            if (!is.null(model)) {
+              aic_value <- AIC(model)
+              bic_value <- BIC(model)
+              
+              # 打印每个模型的信息及 AIC
+              cat("SARIMA(", p, d, q, ")(", P, D, Q, ")[", S, "] - AIC:", aic_value, "\n")
+              
+              # 存储结果
+              model_results <- rbind(model_results, data.frame(
+                Model = paste("SARIMA(", p, d, q, ")(", P, D, Q, ")[", S, "]", sep = ""),
+                p = p, d = d, q = q, P = P, D = D, Q = Q,
+                AIC = aic_value,
+                BIC = bic_value
+              ))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# 查看所有结果
+print(model_results)
+
+# 按 AIC 排序，选择最佳模型
+best_model <- model_results[which.min(model_results$AIC), ]
+cat("Best SARIMA model based on AIC:\n")
+print(best_model)
+
+```
+
+select (3,0,3)*(1,0,2,12) and (0,0,0)*(1,0,2,12)
+
+# coefficient estimation
+
+```{r}
+# 加载必要的包
+library(forecast)
+
+# 使用 Arima 函数拟合 SARIMA(3,0,3)(1,0,2)[12] 模型
+model1 <- Arima(data_xts$AverageTemperature,
+               order = c(3, 0, 3), 
+               seasonal = list(order = c(1, 0, 2), period = 12), 
+               method = "ML",
+               optim.method="BFGS")
+
+# 打印模型结果
+summary(model1)
+
+# 提取参数
+coef(model1)
+
+# 模型诊断：残差分析
+checkresiduals(model1)
+
+```
+
+```{r}
+# 加载必要的包
+library(forecast)
+
+# 使用 Arima 函数拟合 SARIMA(0,0,0)(1,0,2)[12] 模型
+model2 <- Arima(data_xts$AverageTemperature,
+               order = c(0, 0, 0), 
+               seasonal = list(order = c(1, 0, 2), period = 12), 
+               method = "ML",
+               optim.method="BFGS")
+
+# 打印模型结果
+summary(model2)
+
+# 提取参数
+coef(model2)
+
+# 模型诊断：残差分析
+checkresiduals(model2)
+
+```
+
+Ljung-Box test
+
+```{r}
+# 加载必要的包
+library(forecast)
+library(lmtest)  # 提供 Box-Ljung 检验
+
+# 示例时间序列数据（请替换为你的数据）
+temperature_ts <- ts(data_xts$AverageTemperature, frequency = 12, start = c(2003, 1))
+
+# 拟合 SARIMA(3,0,3)(1,0,2,12) 模型
+model_1 <- Arima(temperature_ts, 
+               order = c(3, 0, 3), 
+               seasonal = list(order = c(1, 0, 2), period = 12), 
+               method = "ML")
+
+# 查看模型摘要
+summary(model_1)
+
+# 提取残差
+residuals <- residuals(model_1)
+
+# 使用 Ljung-Box 检验检查不同滞后阶数 (K)
+for (K in 1:12) {
+  cat("\nLjung-Box test for K =", K, "lags:\n")
+  lb_test <- Box.test(residuals, lag = K, type = "Ljung-Box")
+  print(lb_test)
+}
+```
+
+```{r}
+# 加载必要的包
+library(forecast)
+library(lmtest)  # 提供 Box-Ljung 检验
+
+# 示例时间序列数据（请替换为你的数据）
+temperature_ts <- ts(data_xts$AverageTemperature, frequency = 12, start = c(2003, 1))
+
+# 拟合 SARIMA(0,0,0)(1,0,2,12) 模型
+model_2 <- Arima(temperature_ts, 
+               order = c(0, 0, 0), 
+               seasonal = list(order = c(1, 0, 2), period = 12), 
+               method = "ML")
+
+# 查看模型摘要
+summary(model_2)
+
+# 提取残差
+residuals <- residuals(model_2)
+
+# 使用 Ljung-Box 检验检查不同滞后阶数 (K)
+for (K in 1:12) {
+  cat("\nLjung-Box test for K =", K, "lags:\n")
+  lb_test <- Box.test(residuals, lag = K, type = "Ljung-Box")
+  print(lb_test)
+}
+```
+
+consider (0,0,0)(1,0,2,12) and (3,0,3)(1,0,2,12)
+
+overparameterized test
+
+```{r}
+# 加载必要的包
+library(forecast)
+# 拟合第一个模型 SARIMA(3,0,3)*(1,0,2)[12]
+model1 <- Arima(temperature_ts,
+                order = c(3, 0, 3),
+                seasonal = list(order = c(1, 0, 2), period = 12),
+                method = "ML")
+
+# 拟合第二个模型 SARIMA(0,0,0)*(1,0,2)[12]
+model2 <- Arima(temperature_ts,
+                order = c(0, 0, 0),
+                seasonal = list(order = c(1, 0, 2), period = 12),
+                method = "ML")
+
+# 打印模型结果
+cat("Model 1 Summary:\n")
+summary(model1)
+
+cat("\nModel 2 Summary:\n")
+summary(model2)
+
+# 比较 AIC 和 BIC
+cat("\nAIC and BIC Comparison:\n")
+cat(sprintf("Model 1: AIC = %f, BIC = %f\n", AIC(model1), BIC(model1)))
+cat(sprintf("Model 2: AIC = %f, BIC = %f\n", AIC(model2), BIC(model2)))
+
+# 计算似然比检验的统计量
+LR_stat <- 2 * (logLik(model1) - logLik(model2))
+p_value <- pchisq(LR_stat, df = 3, lower.tail = FALSE)  # df = 差异的自由度 (复杂模型参数 - 简单模型参数)
+
+cat("Likelihood Ratio Test:\n")
+cat(sprintf("Statistic = %.3f, p-value = %.3f\n", LR_stat, p_value))
+
+
+```
+
+since p-value\>0.05, model1 is overparameterized, select simpler model2:SARMA(0,0,0)(1,0,2,12)
